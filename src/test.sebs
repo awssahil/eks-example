@@ -1,0 +1,176 @@
+description: create an encrypted EBS volume and attach to specified EC2 instance with attribute 'DeleteOnTermination' set to true
+schemaVersion: '0.3'
+outputs:
+  - GetDeviceName.DeviceName
+  - GetEBSData.VolumeSize
+  - GetDeviceName.HasStorage
+parameters:
+  volumeType:
+    default: gp2
+    description: EBS volume type
+    type: String
+  instanceId:
+    description: EC2 instanceId to attach an EBS volume for docker
+    type: String
+  LogConsolidationFunction:
+    default: spitsi-generic-automation-log-consolidation
+    description: Log Consolidation Lambda Function Name
+    type: String
+  SnsReportToTopic:
+    default: 'arn:aws:sns:us-east-1:445117763643:spitsi-devl-log-application-events-topic'
+    description: SNS Topic ARN where consolidated automation execution report will be send
+    type: String
+  volumeSize:
+    default: '40'
+    description: 'EBS volume size '
+    type: String
+mainSteps:
+  - outputs:
+      - Type: String
+        Name: AvailabilityZone
+        Selector: '$.Reservations[0].Instances[0].Placement.AvailabilityZone'
+      - Type: MapList
+        Name: BlockDeviceMappings
+        Selector: '$.Reservations[0].Instances[0].BlockDeviceMappings'
+      - Type: MapList
+        Name: Tags
+        Selector: '$.Reservations[0].Instances[0].Tags'
+    inputs:
+      Service: ec2
+      Api: DescribeInstances
+      InstanceIds:
+        - '{{instanceId}}'
+    name: GetInstanceData
+    description: retrieve the EC2 instance availability zone
+    onFailure: 'step:sendReport'
+    action: 'aws:executeAwsApi'
+  - outputs:
+      - Type: Boolean
+        Name: HasStorage
+        Selector: $.Payload.HasStorage
+      - Type: String
+        Name: DeviceName
+        Selector: $.Payload.DeviceName
+    inputs:
+      Script: |-
+        def handler(events, context):
+          allowedDeviceName = ["sdi", "sdj", "sdk", "sdl", "sdm", "sdn", "sdo", "sdp"]
+          findNewBlkName = False
+          newBlkName = ''
+          for blkName in allowedDeviceName:
+            nameUsed = False
+            for blkDevice in events["blockDeviceMapping"]:
+              print(blkDevice)
+              if blkName in blkDevice["DeviceName"]:
+                nameUsed = True
+                break
+            if not nameUsed:
+              findNewBlkName = True
+              newBlkName = blkName
+              break
+          print("docker device name is /dev/" + newBlkName)
+          return {
+              "HasStorage" : findNewBlkName,
+              "DeviceName": '/dev/' + newBlkName
+          }
+      Runtime: python3.7
+      InputPayload:
+        blockDeviceMapping: '{{GetInstanceData.BlockDeviceMappings}}'
+      Handler: handler
+    name: GetDeviceName
+    description: parse the existing existing block device mapping and find the next device name for attaching the new volume
+    onFailure: 'step:sendReport'
+    action: 'aws:executeScript'
+  - inputs:
+      Choices:
+        - Variable: '{{GetDeviceName.HasStorage}}'
+          BooleanEquals: true
+          NextStep: GetEBSData
+      Default: sendReport
+    name: StorageBranch
+    action: 'aws:branch'
+    onFailure: 'step:sendReport'
+  - outputs:
+      - Type: String
+        Name: VolumeSizeString
+        Selector: $.Payload.volumeSizeString
+      - Type: Integer
+        Name: VolumeSize
+        Selector: $.Payload.volumeSize
+      - Type: MapList
+        Name: Tags
+        Selector: $.Payload.tags
+    inputs:
+      Script: |-
+        def handler(events, context):
+          allowed_tag_keys = ["Name", "AppCode", "ApplicationName", "ApplicationShortName", "AssetID", "CostCenter", "Environment", "Function", "Lifecycle", "ProjectCode","ProvisioningVersion"]
+          ebs_tags = []
+
+          for key in allowed_tag_keys:
+
+            for tag in events["tags"]:
+              if tag["Key"] == key:
+                 ebs_tags.append(tag)
+                 break
+          return {
+            "volumeSizeString": events["volumeSize"],
+            "volumeSize": int(events["volumeSize"]),
+            "tags": ebs_tags
+          }
+      Runtime: python3.7
+      InputPayload:
+        volumeSize: '{{volumeSize}}'
+        tags: '{{GetInstanceData.Tags}}'
+      Handler: handler
+    name: GetEBSData
+    action: 'aws:executeScript'
+    description: 'Cast from string to integer and number '
+  - outputs:
+      - Name: VolumeId
+        Selector: $.VolumeId
+    inputs:
+      VolumeType: '{{volumeType}}'
+      TagSpecifications:
+        - ResourceType: volume
+          Tags: '{{GetEBSData.Tags}}'
+      Encrypted: true
+      Size: '{{GetEBSData.VolumeSize}}'
+      AvailabilityZone: '{{GetInstanceData.AvailabilityZone}}'
+      Service: ec2
+      Api: CreateVolume
+    name: CreateEBSVolume
+    action: 'aws:executeAwsApi'
+    description: Create an EBS volume for docker file system
+  - maxAttempts: 3
+    inputs:
+      RuntimeParameters:
+        VolumeId: '{{CreateEBSVolume.VolumeId}}'
+        InstanceId: '{{instanceId}}'
+        Device: '{{GetDeviceName.DeviceName}}'
+      DocumentName: AWS-AttachEBSVolume
+    name: AttachEBSVolume
+    timeoutSeconds: 300
+    action: 'aws:executeAutomation'
+    description: Attach created EBS volume to EC2 Instance
+  - maxAttempts: 3
+    inputs:
+      InstanceId: '{{instanceId}}'
+      BlockDeviceMappings:
+        - Ebs:
+            VolumeId: '{{CreateEBSVolume.VolumeId}}'
+            DeleteOnTermination: true
+          DeviceName: '{{GetDeviceName.DeviceName}}'
+      Service: ec2
+      Api: ModifyInstanceAttribute
+    name: SetDeleteOnTermination
+    action: 'aws:executeAwsApi'
+    description: set the EBS vloume to be deleted when instance is terminated
+  - inputs:
+      FunctionName: '{{ LogConsolidationFunction }}'
+      InvocationType: RequestResponse
+      Payload: |-
+        { "executionId" : "{{automation:EXECUTION_ID}}",
+          "topicARN" : "{{ SnsReportToTopic }}"
+         }
+    name: sendReport
+    action: 'aws:invokeLambdaFunction'
