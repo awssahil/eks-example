@@ -1,0 +1,344 @@
+Purpose 
+Splunk is the enterprise log analytics and service insights platform that aggregates and analyzes logs and metrics from multiple data sources in AWS and on-prem. 
+
+High-level objectives:
+
+Deploy Splunk infrastructure in AWS to support searches and advanced log analytics across on-prem and AWS.
+
+Develop end to end service health dashboards, glass tables to depict business workflow and alerts for real time monitoring using ITSI.
+
+Integrate Splunk with data sources to consume logs and KPIs from all needed services used by the business-critical applications – CloudWatch, RDS, Lambda etc.
+
+Send alerts from Splunk to enterprise monitoring backend for event correlation.
+
+Solution 
+Stand up a centralized platform in AWS 2.0 logging account for log analytics and end-to-end service health monitoring for applications and shared services across Fannie Mae’s on-premise and cloud environments.  Infosec and MARS Splunk clusters will be deployed in the same VPC within the Log Account using separate app short names. Initial deployment will be in DEV account and will be propagated to the higher environments during implementation stages (test/acpt/P2X/P2P).
+
+Type: COTS -  Splunk Enterprise
+
+Application - Log Account Integration
+Application LifeCycle
+
+Splunk Cluster
+
+Ports/Services/Protocol
+Development (UTC, East1)
+
+Test(UTC, East1)
+
+Acceptance (UTC)
+
+Acceptance (East 1 and East 2)
+
+Log Account - P2X
+
+TCP over 9997, 8089 ports via ALB/NLB (outbound from agents)
+CloudWatch -> Kinesis
+Production (UTC, East1)
+
+Contingency (OOR, East2)
+
+CLVE (UTC, East1)
+
+Log Account - P2P
+
+TCP over 9997, 8089 ports via ALB/NLB (outbound from agents)
+CloudWatch -> Kinesis
+Splunk Enterprise Components
+Following are the Splunk Enterprise components that will be deployed as part of Splunk ITSI implementation on AWS 2.0 account structure. These components are broadly categorized into 2 (as identified below) and will be deployed on Amazon EC2 instances. 
+
+Processing components, which handle data
+Management components, which support activities of the processing components
+Splunk Component	Component Type	EC2 instance type	vCPU	Memory (GiB)	EBS Volume
+Indexer
+
+Processing 	c5.9xlarge	36	72	5.5 TB GP2
+Search head
+
+Processing 	c5.9xlarge	36	72	300 GB GP2
+Heavy Forwarder
+
+Processing 	m5.4xlarge	16	64	500 GB GP2
+Manager Node	Management 	m5.4xlarge	16	64	100 GB GP2
+Deployment Server	Management 	m5.4xlarge	16	64	100 GB GP2
+Management Console
+
+Management 	m5.4xlarge	16	64	300 GB GP2
+Search Head Deployer/License Manager	Management 	m5.4xlarge	16	64	100 GB GP2
+Deployment Architecture
+
+
+Integration with Infosec Splunk to enable log sharing
+
+
+Subnet Placement and Sizing
+
+
+Ingestion Patterns
+Use Case
+
+Pattern
+
+Notes
+
+CloudWatch log ingestion 
+
+CloudWatch logs to Kinesis
+
+
+Splunk agents on on-premise VMs sending logs 
+
+Universal forwarders to Indexers via TGW 
+
+
+Splunk agents on EC2 instances (shared) sending logs
+
+Universal forwarders to Indexers leveraging private link 
+
+New pattern - requirement from CCoE (Sailesh) - TBD
+
+CloudWatch metrics ingestion
+
+Pull Cloudwatch metrics from portfolio accounts 
+
+
+Automated log Ingestion for Apps on AWS 2.0
+
+
+
+
+
+
+CloudWatch Metrics Ingestion to MARS Splunk 
+
+
+Service Account Access Patterns
+
+
+Splunk Local Users	Permissions
+auto_on	
+Search mars index
+Modify roles and associate AD groups
+Initiate Indexer and Search Head cluster updates
+kinesis	
+search aws_seq index 
+ftadevl/ftaprod	NUID
+Data Governance (required)
+Information Classification: FM Internal
+Crown Jewel: NA
+SOX Relevance: No
+Data ingested to Splunk is all operational logs and performance metrics. Application teams are responsible for masking and cleaning up any sensitive or NPI data before sending to CloudWatch/Splunk.
+
+Enterprise Data Governance policy requirements are not applicable, as Splunk does not store or exchange any business data.  
+
+Observability (required)
+Splunk Monitoring Console (part of COTS) will monitor the availability of all Splunk components.
+Splunk logs will be send to the respective Splunk clusters.
+Catchpoint will monitor the URL availability of the nodes.
+Security (required)
+ISA Domains
+
+Security Controls
+
+Credential Management
+
+Human Users -  Active Directory
+Splunk Local Admin (break glass) - Create IAG identity and onboard to CyberArk  (evaluate CyberArk to change password on check-in)
+Splunk Service Users - (accounts used for automation for Splunk processes- prevent interactive login through web console) - Create IAG identity and onboard to Secret Manager if password is needed.
+NUIDs - AD accounts, password management (Secret Manager )
+for running Splunk process (does not require password - via sudo)
+AD bind NUID
+Access Provisioning
+
+IAG Groups to get access to AWS IAM roles (Developer/Support, DevOps and Release Management) to support and manage application infrastructure
+IAG Groups to get access to Splunk Web console
+Local User provisioned by Splunk administrator using Time bound access
+Authentication and
+
+Authorization
+
+Integrated with FMSSO for Web UI access to Splunk console for all Splunk components 
+AD authentication/authorization for management components console / Web UI ( Tech Debt – requires sending authentication logs → siem )
+Splunk HEC Token authentication for Splunk Http Event Collector Log ingestion
+Fannie Mae Certs for authentication between splunk components
+API authentication by Splunk for MARS process automation ( ?? authentication logs → siem )
+Application Security
+
+FM UCD, EC2 COTS automation using CCOE service catalog for infrastructure provisioning, installation and configuration of Splunk application, CCOE Jira Tickets for any resource not supported by default CCOE Service catalog
+Same for Splunk version upgrade, patch deployment 
+Changes to Splunk configuration will be pushed from bit bucket to deployment Server and via deployment server to other components .
+Will leverage IAM Roles for AWS native service integration, STS:AssumeRole for any Cross Account AWS resource access 
+IAM Instance Role with default privileges, any additional privileges using STS:AssumeRole trust with other IAM role having required access 
+Limited Privileges to Lambda Execution Role (not as instance role)
+Security Groups for rules to allow network connectivity between Splunk components. (allowed ports as per )Splunk Components
+Search Head
+Peer Node (Indexer)
+Cluster Master
+Deployment Server
+Deployer Server
+Management Console
+Heavy Forwarder
+Universal Forwarder (deployed on client instances)
+Security Groups for rules to allow network connectivity between Splunk components. (allowed ports table below)
+front-ended by NLB and ALB to allow network connectivity from non-splunk resources 
+AWS SSM Session manager  to provide ssh access to EC2 instance 
+Infrastructure Security
+
+Need Cross Region network access between Splunk Cluster, deployment and other management console over ports 9887, 9997, 8089, and 8088
+Amazon S3 shall be accessed via the VPC Gateway Endpoint
+Appropriate security groups and network ACLs will be configured to provide perimeter security for the application components 
+Micro segmentation gap - requires opening up Cross Region Compute Subnet CIDR block in Security Group to allow splunk instances for cross region connectivity via TGW on ports  9887, 9997, 8089. To ensure data security, all communication will be over TLS 1.2. SSL certificates and Shared keys are used for cross region connection. 
+Splunk will be deployed in Logging Account, only applications deployed will be MARS and InfoSec Splunk. (Do we need to open Tech Debt for this)
+OS patching -EC2 COTS using CCOE Service catalog
+End of life AMI upgrade - work with CCOE to update COTS automation tool to support this feature
+Data Security
+
+Data-in-transit:
+
+TLS 1.2  for logs from application endpoints to Splunk 
+TLS 1.2  between Splunk components and Pass4SynmKey key (Secret Manager)
+Data-at-Rest:
+
+Data in S3 will be encrypted using server-side encryption KMS
+EBS volume KMS encrypted
+Logging and Monitoring
+
+Authentication logs via FMSSO to SIEM
+SSM Session manager logs for ssh /cli activity
+AWS CloudTrail AWS CloudWatch will be leveraged for security logging and monitoring activities.
+Splunk process and activity logs will be stored in splunk _internal index
+Additional logging requirements  - What happens if FMSSO is not enabled AND local/admin user activity- 
+Ingest auth logs to SIEM where FMSSO is not enabled
+Local user login logs - Splunk service user(local user for automation) not using UI console login 
+Splunk Admin user activity during non time-bound interval
+Operations Security
+
+Platform support team will support the operations, patch managements and upgrades. Will leverage SSM documents and automation.
+
+
+
+Traffic Patterns and Ports
+Component	Patterns	Port	
+Source
+
+Destination 	Pattern Decision
+Search Head ALB	User access to Search Head cluster	443	On-prem/VPN/VDI/zscaler Users	Search Head Cluster (East1, East2)	Front end subnet
+Search Head Admin ALB	Admin access to individual Search Heads	443/8000	On-prem/VPN/VDI Users	Search Head Admin ALB	Front end subnet, through ALB with DNS routing
+Search Head	Search Head communication with Indexer nodes	8089	Search Head (East1, East2)	Indexer (East1, East2)	Connected Compute subnet
+Search Head	Search Head cluster replication	8080	Search Head (East1, East2)	Search Head (East1, East2)	Connected Compute subnet
+Search Head	Search Head communication with Manager Node	8089	Search Head (East1, East2)	Manager Node (East1, East2)	Connected Compute subnet
+Search Head	Search Head communication with bit bucket	443	Search Head (East1, East2)	Bit bucket (on-prem)	Connected Compute subnet
+Indexer/Heavy Forwarder HEC NLB	Data ingestion via HEC 	443	All BU accounts onprem, AWS	
+Indexer/Heavy Forwarder HEC NLB
+
+Front end subnet
+Indexer Cluster	Indexer cluster replication	9887	Indexer (East1, East2)	Indexer (East1, East2)	Connected Compute subnet
+Indexer 	Indexer communication with Manager Node	8089	Indexer (East1, East2)	Manager Node  (East1, East2)	Connected Compute subnet
+Manager Node	Manager Node communication with Indexer	8089	Manager Node  (East1, East2)	Indexer (East1, East2)	Connected Compute subnet
+Manager Node	Manager Node communication with Deployment Server	8089	Manager Node  (East1, East2)	Deployment Server (East1, East2)	Connected Compute subnet
+Manager Node	Admin access to Manager Node	8000	On-prem/VPN/VDI Users	Manager Node  (East1, East2)	Connected Compute subnet
+All Splunk components	Splunk component logs to Indexer	9997	All Splunk components (region-specific, no cross-region)	Indexer (region-specific, no cross-region)	Rule requirement - Search Head, SH Deployer, Manager Node, Management Console, License Manage, HFs
+All Splunk components	Splunk server communication with Active Directory	636	All Splunk components  (East1, East2)	AD on-prem/AWS	
+Requires Connected Compute
+
+Search Head Deployer	Search Head Deployer communication with Search Head Cluster	8089	Search Head Deployer (East1, East 2)	Search Head (East1, East2)	Connected Compute subnet
+Search Head Deployer	Search Head Deployer communication with Deployment Server	8089	Search Head Deployer (East1, East2)	Deployment Server (East1, East2)	Connected Compute subnet
+Deployment Server Admin ALB	Admin access to Deployment Server	443/8000	On-prem/VPN/VDI Users	Deployment Server Admin ALB	Front end subnet with Deployment Server in Connected Compute subnet
+Deployment Server Mgmt NLB	UF agent pulling packages from Deployment Server	443/8089	
+UF agent on UTC/OOR VMs
+
+UF agents on AWS 2.0 EC2 Servers (East1, East2)
+
+Deployment Server Mgmt NLB	
+Deployment Server Mgmt NLB for onprem traffic, with DNS
+
+Private link with VPC endpoint for AWS traffic
+
+Management Console	Communication with all Splunk components	8089	Management Console (East1, East2)	All Splunk components (East1, East2)	Connected Compute subnet
+Management Console Admin ALB	Admin access to Management Console	443/8000	On-prem/VPN/VDI Users	Management Console Admin ALB	Front end subnet
+License Manager Admin ALB	Admin access to License Manager	443/8000	On-prem/VPN/VDI Users	License Manager Admin ALB	Front end subnet
+License Manager	Communication with all Splunk components	8089	All Splunk components  (East1, East2)	License Manager (East1, East2)	Connected Compute subnet
+Heavy Forwarder Admin ALB	Admin access to Heavy Forwarder	443/8000	On-prem/VPN/VDI Users	Heavy Forwarder Admin ALB	Front end subnet
+Heavy Forwarder	Heavy Forwarder communication with Deployment Server 	8089	Heavy Forwarder (East1, East2)	Deployment Server (East1, East2)	Connected Compute subnet
+Other Integrations
+Component	Pattern	Port	Source	Destination	Pattern Decision
+Indexer	Log sharing with Infosec	9997	Infosec Indexer/HFs	Indexer (East1, East2)	Use new accounts for P2X and existing P2P (upgraded)
+Heavy Forwarder	Log sharing with Infosec	9997	Heavy Forwarder (East1, East2)	Infosec Indexer/HFs	Use new accounts for P2X and existing P2P (upgraded)
+Indexer 	Universal forwarder (on-prem server) communication with Indexer	9997	UF agent on UTC/OOR VMs	Indexer (East1, East2)	Requires testing with NLB (with targets in multi-AZs) before making decision to see if connection persists.
+Indexer 	Universal forwarder (shared EC2 instances) communication with Indexer	9997	UF agents on AWS 2.0 EC2 Servers (East1, East2)	Indexer (East1, East2)	Requires testing with NLB (with targets in multi-AZs) before making decision to see if connection persists.
+Log destinations	CloudWatch Logs 	NA	CloudWatch in portfolio accounts	SPITSI log destinations per BU	IAM role
+Kinesis Streams	Log destination - streaming to Kinesis	NA	SPITSI log destinations per BU	Kinesis Streams in logging Account (East1, East2)	IAM role, interface endpoint
+Lambda	CloudWatch metrics collection	NA	SPITSI Log Account getmetric API	CloudWatch in portfolio accounts	IAM role
+Lambda	CloudWatch metrics - push to Kinesis	NA	CloudWatch in portfolio accounts	Kinesis Streams in logging Account (East1, East2)	IAM role, interface endpoint
+Heavy Forwarder	CloudWatch logs, metrics and kafka ingestion through Kinesis	NA	Heavy Forwarder (KCL) (East1, East2)	Kinesis Streams in logging Account (East1, East2)	IAM role, interface endpoint
+Heavy Forwarder	Data ingestion from database, ITM, CMDB (DB Connect)	1433, 1521, 5001	Heavy Forwarder (East1, East2)	On-prem DBs (SQL, Oracle, Sybase)	Via Heavy Forwarder on-prem
+Lambda	Confluent Kafka metrics ingestion	9480	Lambda in log account (East1, East2)	Confluent SaaS	
+Connects through Zscaler.
+
+Requirement provided to Confluent team to use private link
+
+Lambda	Confluent Kafka metrics ingestion	NA	Kafka through lambda/Kinesis	Kinesis Streams in logging Account (East1, East2)	IAM role, interface endpoint
+Lambda	DynamoDB connection	NA	Lambda (East1, East2)	DynamoDB (Global Table)	IAM role, VPC endpoint
+Lambda	S3 connection	NA	Lambda (East1, East2)	S3 buckets (East1, East2)	IAM role, VPC endpoint
+All SPITSI EC2s	S3 connection	NA	All SPITSI EC2s (East1, East2)	S3 buckets (East1, East2)	IAM role, VPC endpoint
+Heavy Forwarder	Security logs (IAG, DUO)	9997	UF agent on UTC/OOR VMs	Heavy Forwarder (East1, East2)	Requires testing with NLB (with targets in multi-AZs) before making decision to see if connection persists.
+Heavy Forwarder	Dynatrace metrics ingestion via REST API	443	Heavy Forwarder (East1, East2)	Dynatrace Server	Dynatrace in AWS ESS Account or Dynatrace on-premise 
+Heavy Forwarder	Dell EMC VMax (Storage)	9997	Dell EMC Vmax Server	Heavy Forwarder	Requires testing with NLB (with targets in multi-AZs) before making decision to see if connection persists.
+Heavy Forwarder	Dell EMC VMax (Storage)	8443	Heavy Forwarder (East1, East2)	Dell EMC Vmax Server	
+Use heavy forwarder on-premise.
+
+Heavy Forwarder	Salesforce 	443	Heavy Forwarder (East1, East2)	Salesforce API	Connects through Zscaler.
+Heavy Forwarder	VMware metrics ingestion	9997	VMware Servers (DCN)	Heavy Forwarder (East1, East2)	Use on-premise heavy forwarder.
+Heavy Forwarder	VMware	443	vCenter onprem	Heavy Forwarder (East1, East2)	
+Use on-premise heavy forwarder. 
+
+Heavy Forwarder	VMware	8089	Heavy Forwarder (East1, East2)	VMware Servers (DCN)	Use on-premise heavy forwarder. 
+Heavy Forwarder	VMware	8008	Heavy Forwarder (East1, East2)	VMware Servers (DCN)	Use on-premise heavy forwarder. 
+Heavy Forwarder	Jenkins	443	Heavy Forwarder (East1, East2)	Jenkins API	AWS to onprem connectivity is open for port 443
+Heavy Forwarder	SolarWinds	443	Heavy Forwarder (East1, East2)	SolarWinds API	Use on-premise heavy forwarder. 
+Heavy Forwarder	
+SolarWinds
+
+17778	Heavy Forwarder (East1, East2)	SolarWinds API	Use on-premise heavy forwarder. 
+Heavy Forwarder	Jira	443	Heavy Forwarder (East1, East2)	Jira	AWS to onprem connectivity is open for port 443
+All Splunk Components	Alerts to EMM	443	All Splunk Components (East1, East2)	EMM REST Load Balancer on-prem	AWS to onprem connectivity is open for port 443
+
+
+Resiliency 
+
+Splunk is a RG0 asset with Active/Active (east-1/east-2) setup. Logs are replicated to east-2.
+
+PSS will be in-charge of switching the destinations for CloudWatch logs (at a global level)  between regions in the event of any regional failure of Splunk platform. CloudWatch regional failure is outside this scope and will adhere to the AWS SLAs.
+
+Single Region Resiliency: Clusters will be deployed across minimum 4 AZs to ensure resiliency within a region. 
+
+Cross Region Resiliency: For all applicable lifecycles, there will be a region 2 in active-active configuration for resiliency across regions.  
+
+Scenario
+
+RTO
+
+RPO
+
+Active-Active	Real time (<5 minutes)	Real time (<0 minutes)
+RTO and RPO is just for the Splunk COTS platform. CloudWatch, Kinesis and underlying AWS infrastructure will follow AWS SLAs. 
+
+
+Guardrails (optional)
+Add references to the applicable Architecture Guardrails, such as data guardrails, security guardrails, and enterprise resilience guardrails (for an example, see here).
+
+Anti Patterns ( required )
+This pattern should not be used for logs containing sensitive or NPI data. Application teams must mask such information before streaming to CloudWatch/Splunk.
+
+Known Limitations ( required )
+Splunk is built on native AWS services (Cloud Watch -> Kinesis), so will have impacts if those AWS services aren’t available.
+EC2s rely on parameter store for URLs and other user information during system reboots and upgrades.  
+Tech Debt (optional)
+Micro segmentation (requires opening up Cross Region Compute Subnet CIDR block in Security Group to allow Splunk instances for cross region connectivity via TGW on ports  9887, 9997, 8089, and 8088)
+FMSSO not enable for authentication on Splunk management nodes - Team will work on processes and automation to perform task that require running command from CLI as Federated admin. Splunk 8.1 upgrade supports SAML user in CLI using Authenticator Extension for SAML IDP.
+Appendix (optional)
+Any other sections, subsections, or external resources that you would like to include. For example:
+
+CA Service Assessment
+
+InfoSec Security Assessment
